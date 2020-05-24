@@ -10,10 +10,19 @@ Beside standard tinker equipment (soldering iron, breadboard, cable etc.) there 
 
 Component | Amount | Source | Price
 ------------ | ------------- | -------------| -------------
-ESP8266 ESP-12F 4MB      | 1 | [AliExpress](https://www.aliexpress.com/item/33020743322.html)   | 1,80$
-ESP8266 Breakout Board   | 1 | [AliExpress](https://www.aliexpress.com/item/32860694356.html)   | 0,40$
-12V AC 18RPM Motor       | 2 | [AliExpress](https://www.aliexpress.com/item/32867070357.html)   | 16,12$
-L298N motor driver       | 1 | [AliExpress](https://www.aliexpress.com/item/33012645746.html)   | 1,40$
-6mm rigid flange coupler | 2 | [AliExpress](https://www.aliexpress.com/item/4000317773964.html) | 2,02$
-LF33CV voltage regulator | 1 | [Conrad](https://www.conrad.de/de/p/stmicroelectronics-lf33cv-spannungsregler-linear-to-220ab-positiv-fest-500-1185795.html) | 0,92€
-Push Buttons             | 3 | [AliExpress](https://www.aliexpress.com/item/33010781184.html) | 1,20$
+ESP8266 ESP-12F 4MB       | 1 | [AliExpress](https://www.aliexpress.com/item/33020743322.html)   | 1,80$
+ESP8266 Breakout Board    | 1 | [AliExpress](https://www.aliexpress.com/item/32860694356.html)   | 0,40$
+12V AC 18RPM Motor        | 2 | [AliExpress](https://www.aliexpress.com/item/32867070357.html)   | 16,12$
+L298N motor driver        | 1 | [AliExpress](https://www.aliexpress.com/item/33012645746.html)   | 1,40$
+6mm rigid flange coupler  | 2 | [AliExpress](https://www.aliexpress.com/item/4000317773964.html) | 2,02$
+LF33CV voltage regulator  | 1 | [Conrad](https://www.conrad.de/de/p/stmicroelectronics-lf33cv-spannungsregler-linear-to-220ab-positiv-fest-500-1185795.html) | 0,92€
+Push Buttons              | 3 | [AliExpress](https://www.aliexpress.com/item/33010781184.html) | 1,20$
+DC Power Socker Screwable | 1 | [AliExpress](https://www.aliexpress.com/item/1987966589.html) [Amazon](https://www.amazon.de/gp/product/B00FWP5EYK/) [Banggood](https://www.banggood.com/10pcs-DC-022-5_5-2_1mm-Round-Hole-Screw-Nut-DC-Power-Socket-ROHS-Internal-Diameter-5_5mm-p-1200831.html) | 1,83€
+
+
+Power consumption
+Situation | Ampere
+------------ | -------------
+Both motors off, ESP8266 connected to WiFi | 0,021A
+Both motors on, no load, ESP8266 connected to WiFi | 0,031A
+Both motors on, highest load I can achieve with my bare hands, ESP8266 connected to WiFI | 0,075A 
