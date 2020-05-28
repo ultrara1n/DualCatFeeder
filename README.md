@@ -1,7 +1,8 @@
 # DualCatFeeder
 Before starting, most of the credits are going to Thomas Krichbaumer from https://www.machs-selbst.net/ who provided me with his CAD files for the basic cat feeder design.
 
-![Image of nearly finished models](/media/dualcatfeeder.png)
+![Image of nearly finished models](/media/dualcatfeeder-front.png)
+![Image of nearly finished models](/media/dualcatfeeder-back.png)
 ![GIF of electronical setup](/media/esp8266motor.gif)
 
 The electronics are based on an ESP8266 microcontroller, a L298N driver (evaluating this atm, maybe replacing with a TB6612) and two DC-Motors (relativeley high torque and low rpm). 
@@ -17,7 +18,7 @@ L298N motor driver        | 1 | [AliExpress](https://www.aliexpress.com/item/330
 6mm rigid flange coupler  | 2 | [AliExpress](https://www.aliexpress.com/item/4000317773964.html) | 2,02$
 LF33CV voltage regulator  | 1 | [Conrad](https://www.conrad.de/de/p/stmicroelectronics-lf33cv-spannungsregler-linear-to-220ab-positiv-fest-500-1185795.html) | 0,92€
 Push Buttons              | 3 | [AliExpress](https://www.aliexpress.com/item/33010781184.html) | 1,20$
-DC Power Socker Screwable | 1 | [AliExpress](https://www.aliexpress.com/item/1987966589.html) [Amazon](https://www.amazon.de/gp/product/B00FWP5EYK/) [Banggood](https://www.banggood.com/10pcs-DC-022-5_5-2_1mm-Round-Hole-Screw-Nut-DC-Power-Socket-ROHS-Internal-Diameter-5_5mm-p-1200831.html) | 1,83€
+DC Power Socket Screwable | 1 | [AliExpress](https://www.aliexpress.com/item/1987966589.html), [Amazon](https://www.amazon.de/gp/product/B00FWP5EYK/), [Banggood](https://www.banggood.com/10pcs-DC-022-5_5-2_1mm-Round-Hole-Screw-Nut-DC-Power-Socket-ROHS-Internal-Diameter-5_5mm-p-1200831.html) | 1,83€
 
 Make sure that the size of your power socket and the provided plug of the power supply are matching! In this case both are 5,5mm*2,1mm.
 
