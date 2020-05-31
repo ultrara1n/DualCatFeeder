@@ -6,6 +6,7 @@
 #include <WebSocketsServer.h>
 
 #include "OneButton.h"
+#include <L298N.h>
 
 const char* wifiSSID     = "";
 const char* wifiPassword = "";
@@ -20,27 +21,31 @@ const int   OTAPort     = 8266;
 const char* OTAHostname = "";
 const char* OTAPassword = "";
 
-int ENA = 200; //GPIO14 - ENA;
-int IN1 = 13; //GPIO13 - IN1;
-int IN2 = 14; //GPIO12 - IN2;
-int IN3 = 15; //GPIO15 - IN3;
-int IN4 = 4;  //GPIO04 - IN4
+const unsigned int IN1 = 13; //GPIO13 - IN1;
+const unsigned int IN2 = 14; //GPIO14 - IN2;
+const unsigned int IN3 = 15; //GPIO15 - IN3;
+const unsigned int IN4 = 4;  //GPIO4  - IN4
 
-int BUTTON1 = 12; //GPIO12 - Schwarzer Button
-int BUTTON2 = 1;  //GPIO16 - Blauer Button
-int BUTTON3 = 5;  //GPIO5  - Weißer Button 
+int BUTTON1 = 12; //GPIO12 - Black button
+int BUTTON2 = 1;  //GPIO16 - Blue button
+int BUTTON3 = 5;  //GPIO5  - White button 
 
 int MOTOR_STATUS = 0;
-
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 WebSocketsServer webSocket(81);
 
 OneButton button1(BUTTON1, true);
+OneButton button2(BUTTON2, true);
+OneButton button3(BUTTON3, true);
+
+L298N leftMotor(99, IN1, IN2);
+L298N rightMotor(99, IN3, IN4);
 
 void setup() {
-  pinMode(1, FUNCTION_3); 
+  //Convert TX to GPIO1
+  pinMode(1, FUNCTION_3);
   Serial.begin(115200);
   Serial.println("Booting");
   WiFi.mode(WIFI_STA);
@@ -94,56 +99,31 @@ void setup() {
 
   client.publish("home/kueche/futterautomat/log", "Here we go again.");
   client.subscribe("home/kueche/futterautomat/#");
- 
-  //Neuer Motortreiber
-  //pinMode(12, OUTPUT); //PWMA
-  //pinMode(13, OUTPUT); //AIN2
-  //pinMode(14, OUTPUT); //AIN1
-  //pinMode(16, OUTPUT); //STBY
-  //pinMode(5, OUTPUT); //PWMB
-  //pinMode(4, OUTPUT); //BIN2
-  //pinMode(15, OUTPUT); //BIN1
-
-  //digitalWrite(12, LOW);
-  //digitalWrite(13, LOW);
-  //digitalWrite(14, LOW);
-  //digitalWrite(16, LOW);
-  //digitalWrite(5, LOW);
-  //digitalWrite(4, LOW);
-  //digitalWrite(15, LOW);
-  
-
-  //digitalWrite(16, HIGH);
-
-  //digitalWrite(14, LOW);
-  //digitalWrite(13, HIGH);
-  //digitalWrite(12, HIGH);
-
-  //digitalWrite(4, HIGH);
-  //digitalWrite(15, LOW);
-  //digitalWrite(5, HIGH);
-
   
   //Motor
-  //pinMode(ENA, OUTPUT);
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
 
   //Turn off motors
-  controlMotorStatus("off", 1);
-  controlMotorStatus("off", 2);
+  //controlMotorStatus("off", 1);
+  //controlMotorStatus("off", 2);
+
+  rightMotor.stop();
+  leftMotor.stop();
     
   //Button
-  //pinMode(BUTTON1, INPUT_PULLUP);
+  pinMode(BUTTON1, INPUT_PULLUP);
   pinMode(BUTTON2, INPUT_PULLUP);
   pinMode(BUTTON3, INPUT_PULLUP);
 
   //WebSocket
   startWebSocket();
 
-  button1.attachDoubleClick(doubleButton1);
+  button1.attachDoubleClick(doubleClickButton1);
+  button2.attachLongPressStart(clickButton2);
+  button3.attachDoubleClick(doubleClickButton3);
 }
 
 void startWebSocket() { // Start a WebSocket server
@@ -190,8 +170,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
   if(strcmp(topic, "home/kueche/futterautomat/motorstatus")==0){
     controlMotorStatus(msg, 1);
     controlMotorStatus(msg, 2);
-  } else if (strcmp(topic, "home/kueche/futterautomat/motorspeed")==0){
-    controlMotorSpeed((int)msg);
   } else if (strcmp(topic, "home/kueche/futterautomat/motordirection")==0){
     changeMotorDirection(msg, 1);
     changeMotorDirection(msg, 2);
@@ -221,10 +199,6 @@ void controlMotorStatus(char* msg, int motor) {
     digitalWrite(gpioIN2, LOW);
     MOTOR_STATUS = 0;
   }
-}
-
-void controlMotorSpeed(int newSpeed) {
-  analogWrite(ENA, newSpeed);
 }
 
 void changeMotorDirection(char* msg, int motor){
@@ -268,32 +242,26 @@ void loop() {
 
   webSocket.loop(); 
 
-  //if(digitalRead(BUTTON1) == LOW) {
-  //    changeMotorDirection("left", 1);
-  //    changeMotorDirection("left", 2);
-  //}
-
-  if(digitalRead(BUTTON2) == LOW) {
-      controlMotorStatus("off", 1);
-      controlMotorStatus("off", 2);
-  }
-
-  if(digitalRead(BUTTON3) == LOW) {
-      changeMotorDirection("right", 1);
-      changeMotorDirection("right", 2);
-  }
-
   button1.tick();
+  button2.tick();
+  button3.tick();
 }
 
-void doubleButton1(){
-  changeMotorDirection("left", 1);
-  changeMotorDirection("left", 2);
+void doubleClickButton1(){
+  //changeMotorDirection("left", 1);
+  //changeMotorDirection("left", 2);
+  rightMotor.backward();
+  leftMotor.backward();
 }
 
-void setSpeed(int speed) {
-  //Geschwindigkeit setzen
-  client.publish("home/kueche/futterautomat/log", "Geschwindigkeit auf ");
-  
-  analogWrite(ENA, speed);
+void clickButton2(){
+  controlMotorStatus("off", 1);
+  controlMotorStatus("off", 2);
+  rightMotor.stop();
+  leftMotor.stop();
+}
+
+void doubleClickButton3(){
+  changeMotorDirection("right", 1);
+  changeMotorDirection("right", 2);
 }
