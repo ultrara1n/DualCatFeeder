@@ -4,6 +4,7 @@
 #include <ArduinoOTA.h>
 #include <PubSubClient.h>
 #include <WebSocketsServer.h>
+#include <ArduinoJson.h>
 
 #include "OneButton.h"
 #include <L298N.h>
@@ -28,9 +29,12 @@ const unsigned int IN4 = 4;  //GPIO4  - IN4
 
 int BUTTON1 = 12; //GPIO12 - Black button
 int BUTTON2 = 1;  //GPIO16 - Blue button
-int BUTTON3 = 5;  //GPIO5  - White button 
+int BUTTON3 = 5;  //GPIO5  - White button
 
 int MOTOR_STATUS = 0;
+
+int STOP_AFTER = 0;
+long STOP_AFTER_MILLIS;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -46,6 +50,7 @@ L298N rightMotor(99, IN3, IN4);
 void setup() {
   //Convert TX to GPIO1
   pinMode(1, FUNCTION_3);
+
   Serial.begin(115200);
   Serial.println("Booting");
   WiFi.mode(WIFI_STA);
@@ -89,7 +94,7 @@ void setup() {
   while (!client.connected()) {
     Serial.println("Connecting to MQTT...");
     if (client.connect("ESP8266Client", mqttUser, mqttPassword )) {
-      Serial.println("connected");  
+      Serial.println("connected");
     } else {
       Serial.print("failed with state ");
       Serial.print(client.state());
@@ -99,7 +104,7 @@ void setup() {
 
   client.publish("home/kueche/futterautomat/log", "Here we go again.");
   client.subscribe("home/kueche/futterautomat/#");
-  
+
   //Motor
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
@@ -107,12 +112,8 @@ void setup() {
   pinMode(IN4, OUTPUT);
 
   //Turn off motors
-  //controlMotorStatus("off", 1);
-  //controlMotorStatus("off", 2);
+  stopBothMotors();
 
-  rightMotor.stop();
-  leftMotor.stop();
-    
   //Button
   pinMode(BUTTON1, INPUT_PULLUP);
   pinMode(BUTTON2, INPUT_PULLUP);
@@ -143,95 +144,55 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lenght
       }
       break;
     case WStype_TEXT:                     // if new text data is received
-      Serial.printf("[%u] get Text: %s\n", num, payload);
-      if (payload[0] == 'M') {            //Motorsteuerung
-        if(payload[1] == 'S') {
-          int motor = (int)payload[2];
-          controlMotorStatus("on", 1);
-          controlMotorStatus("on", 2);
-          client.publish("home/kueche/futterautomat/log", "Motor an");
+      const size_t capacity = JSON_OBJECT_SIZE(2) + 30;
+      DynamicJsonDocument doc(capacity);
+
+      DeserializationError err = deserializeJson(doc, payload);
+      if (err) {
+        client.publish("home/kueche/futterautomat/log", (char*) err.c_str());
+      } else {
+        const char* action = doc["action"];
+        int time_s         = doc["time"];
+
+        if ( strcmp(action, "forwards") == 0) {
+          if ( time_s > 0 ){
+            STOP_AFTER = time_s * 1000;
+            STOP_AFTER_MILLIS = millis();
+          }
+            rightMotor.forward();
+            leftMotor.forward();
+        } else if ( strcmp(action, "backwards") == 0) {
+          rightMotor.backward();
+          leftMotor.backward();
+        } else if ( strcmp(action, "stop") == 0) {
+          stopBothMotors();
         }
-        client.publish("home/kueche/futterautomat/log", "trollolo");
       }
       break;
   }
 }
 
+void callbackStopRight() {
+  rightMotor.stop();
+  rightMotor.reset();
+}
+
 void callback(char* topic, byte* payload, unsigned int length) {
-  char msg[length+1];
+  char msg[length + 1];
   for (int i = 0; i < length; i++) {
     Serial.print((char)payload[i]);
     msg[i] = (char)payload[i];
   }
 
   msg[length] = '\0';
-  
+
   //Motorstatus kontrollieren
-  if(strcmp(topic, "home/kueche/futterautomat/motorstatus")==0){
+  if (strcmp(topic, "home/kueche/futterautomat/motorstatus") == 0) {
     controlMotorStatus(msg, 1);
     controlMotorStatus(msg, 2);
-  } else if (strcmp(topic, "home/kueche/futterautomat/motordirection")==0){
+  } else if (strcmp(topic, "home/kueche/futterautomat/motordirection") == 0) {
     changeMotorDirection(msg, 1);
     changeMotorDirection(msg, 2);
-  }
-}
-
-void controlMotorStatus(char* msg, int motor) {
-  int gpioIN1;
-  int gpioIN2;
-  
-  if (motor == 1) {
-    gpioIN1 = IN1;
-    gpioIN2 = IN2;
-  } else if (motor == 2) {
-    gpioIN1 = IN3;
-    gpioIN2 = IN4;
-  }
-  
-  if(strcmp(msg, "on")==0){
-    // turn on motor
-    //digitalWrite(ENA, HIGH); // set speed to 200 out of possible range 0~255
-    digitalWrite(gpioIN1, HIGH);
-    digitalWrite(gpioIN2, LOW);
-    MOTOR_STATUS = 1;
-  } else if (strcmp(msg, "off")==0) {
-    digitalWrite(gpioIN1, LOW);
-    digitalWrite(gpioIN2, LOW);
-    MOTOR_STATUS = 0;
-  }
-}
-
-void changeMotorDirection(char* msg, int motor){
-  int gpioIN1;
-  int gpioIN2;
-  
-  if (motor == 1) {
-    gpioIN1 = IN1;
-    gpioIN2 = IN2;
-  } else if (motor == 2) {
-    gpioIN1 = IN3;
-    gpioIN2 = IN4;
-  }
-  
-  if(strcmp(msg, "left")==0){
-    //Motor 1
-    digitalWrite(gpioIN1, LOW);
-    digitalWrite(gpioIN2, HIGH);   
-    MOTOR_STATUS = 1;
-  } else if (strcmp(msg, "right")==0){
-    digitalWrite(gpioIN1, HIGH);
-    digitalWrite(gpioIN2, LOW);
-    MOTOR_STATUS = 1;
-  }
-}
-
-void toggleMotors() {
-  if (MOTOR_STATUS == 0) {
-    controlMotorStatus("on", 1);
-    controlMotorStatus("on", 2); 
-  } else if (MOTOR_STATUS == 1) {
-    controlMotorStatus("off", 1);
-    controlMotorStatus("off", 2);
   }
 }
 
@@ -240,28 +201,38 @@ void loop() {
 
   client.loop();
 
-  webSocket.loop(); 
+  webSocket.loop();
 
   button1.tick();
   button2.tick();
   button3.tick();
+
+  //check for active STOP_AFTER time
+  long currentMillis = millis();
+  if ( STOP_AFTER > 0 ){
+    if ( currentMillis - STOP_AFTER_MILLIS >= STOP_AFTER ){
+      stopBothMotors();
+    }
+  }
 }
 
-void doubleClickButton1(){
-  //changeMotorDirection("left", 1);
-  //changeMotorDirection("left", 2);
+void doubleClickButton1() {
   rightMotor.backward();
   leftMotor.backward();
 }
 
-void clickButton2(){
-  controlMotorStatus("off", 1);
-  controlMotorStatus("off", 2);
-  rightMotor.stop();
-  leftMotor.stop();
+void clickButton2() {
+  stopBothMotors();
 }
 
-void doubleClickButton3(){
-  changeMotorDirection("right", 1);
-  changeMotorDirection("right", 2);
+void doubleClickButton3() {
+  rightMotor.forward();
+  leftMotor.forward();
+}
+
+void stopBothMotors() {
+  rightMotor.stop();
+  leftMotor.stop();
+
+  STOP_AFTER = 0;
 }
