@@ -1,12 +1,14 @@
 #include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include <PubSubClient.h>
 #include <WebSocketsServer.h>
 #include <ArduinoJson.h>
+#include <FS.h>
 
-#include "OneButton.h"
+#include <OneButton.h>
 #include <L298N.h>
 
 const char* wifiSSID     = "";
@@ -20,7 +22,7 @@ const char* mqttPath     = "";
 
 const int   OTAPort     = 8266;
 const char* OTAHostname = "";
-const char* OTAPassword = "";
+//const char* OTAPassword = "password";
 
 const unsigned int IN1 = 13; //GPIO13 - IN1;
 const unsigned int IN2 = 14; //GPIO14 - IN2;
@@ -33,12 +35,14 @@ int BUTTON3 = 5;  //GPIO5  - White button
 
 int MOTOR_STATUS = 0;
 
-int STOP_AFTER = 0;
+long STOP_AFTER = 0;
 long STOP_AFTER_MILLIS;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 WebSocketsServer webSocket(81);
+
+ESP8266WebServer webServer(80);
 
 OneButton button1(BUTTON1, true);
 OneButton button2(BUTTON2, true);
@@ -63,7 +67,7 @@ void setup() {
 
   ArduinoOTA.setPort(OTAPort);
   ArduinoOTA.setHostname(OTAHostname);
-  ArduinoOTA.setPassword(OTAPassword);
+  //ArduinoOTA.setPassword(OTAPassword);
 
   ArduinoOTA.onStart([]() {
     Serial.println("Start");
@@ -125,6 +129,67 @@ void setup() {
   button1.attachDoubleClick(doubleClickButton1);
   button2.attachLongPressStart(clickButton2);
   button3.attachDoubleClick(doubleClickButton3);
+
+  SPIFFS.begin();
+  
+  //WebServer
+  webServer.on("/", handleRoot);
+  webServer.onNotFound(handleWebRequests); 
+  webServer.begin();
+
+  
+}
+
+void handleRoot(){
+  webServer.sendHeader("Location", "/index.html", true);
+  webServer.send(302, "text/plain","");
+}
+
+void handleWebRequests(){
+  client.publish("home/kueche/futterautomat/log", "handleWebRequests");
+  
+  if(loadFromSpiffs(webServer.uri())) return;
+  String message = "File Not Detected\n\n";
+  message += "URI: ";
+  message += webServer.uri();
+  message += "\nMethod: ";
+  message += (webServer.method() == HTTP_GET)?"GET":"POST";
+  message += "\nArguments: ";
+  message += webServer.args();
+  message += "\n";
+  for (uint8_t i=0; i<webServer.args(); i++){
+    message += " NAME:"+webServer.argName(i) + "\n VALUE:" + webServer.arg(i) + "\n";
+  }
+  webServer.send(404, "text/plain", message);
+  Serial.println(message);
+}
+
+bool loadFromSpiffs(String path){
+  client.publish("home/kueche/futterautomat/log", "loadFromSpiffs");
+  
+  String dataType = "text/plain";
+
+  if(path.endsWith("/")) path += "index.htm";
+ 
+  if(path.endsWith(".src")) path = path.substring(0, path.lastIndexOf("."));
+  else if(path.endsWith(".html")) dataType = "text/html";
+  else if(path.endsWith(".htm")) dataType = "text/html";
+  else if(path.endsWith(".css")) dataType = "text/css";
+  else if(path.endsWith(".js")) dataType = "application/javascript";
+  else if(path.endsWith(".png")) dataType = "image/png";
+  else if(path.endsWith(".gif")) dataType = "image/gif";
+  else if(path.endsWith(".jpg")) dataType = "image/jpeg";
+  else if(path.endsWith(".ico")) dataType = "image/x-icon";
+  else if(path.endsWith(".xml")) dataType = "text/xml";
+  else if(path.endsWith(".pdf")) dataType = "application/pdf";
+  else if(path.endsWith(".zip")) dataType = "application/zip";
+  File dataFile = SPIFFS.open(path.c_str(), "r");
+  if (webServer.hasArg("download")) dataType = "application/octet-stream";
+  if (webServer.streamFile(dataFile, dataType) != dataFile.size()) {
+  }
+ 
+  dataFile.close();
+  return true;
 }
 
 void startWebSocket() { // Start a WebSocket server
@@ -152,29 +217,18 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lenght
         client.publish("home/kueche/futterautomat/log", (char*) err.c_str());
       } else {
         const char* action = doc["action"];
-        int time_s         = doc["time"];
-
+        int time_ms        = doc["time"];
+        
         if ( strcmp(action, "forwards") == 0) {
-          if ( time_s > 0 ){
-            STOP_AFTER = time_s * 1000;
-            STOP_AFTER_MILLIS = millis();
-          }
-            rightMotor.forward();
-            leftMotor.forward();
+            bothMotorsForwards(time_ms);
         } else if ( strcmp(action, "backwards") == 0) {
-          rightMotor.backward();
-          leftMotor.backward();
+          bothMotorsBackwards(time_ms);
         } else if ( strcmp(action, "stop") == 0) {
           stopBothMotors();
         }
       }
       break;
   }
-}
-
-void callbackStopRight() {
-  rightMotor.stop();
-  rightMotor.reset();
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -188,37 +242,41 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
   //Motorstatus kontrollieren
   if (strcmp(topic, "home/kueche/futterautomat/motorstatus") == 0) {
-    controlMotorStatus(msg, 1);
-    controlMotorStatus(msg, 2);
+    //controlMotorStatus(msg, 1);
+    //controlMotorStatus(msg, 2);
   } else if (strcmp(topic, "home/kueche/futterautomat/motordirection") == 0) {
-    changeMotorDirection(msg, 1);
-    changeMotorDirection(msg, 2);
+    //changeMotorDirection(msg, 1);
+    //changeMotorDirection(msg, 2);
   }
 }
 
 void loop() {
   ArduinoOTA.handle();
 
+  //MQTT
   client.loop();
 
+  //WebSocket
   webSocket.loop();
+  
+  //WebServer
+  webServer.handleClient();
 
+  //Buttons
   button1.tick();
   button2.tick();
   button3.tick();
 
-  //check for active STOP_AFTER time
-  long currentMillis = millis();
+  //check for active STOP_AFTER timer
   if ( STOP_AFTER > 0 ){
-    if ( currentMillis - STOP_AFTER_MILLIS >= STOP_AFTER ){
+    if ( millis() - STOP_AFTER_MILLIS >= STOP_AFTER ){
       stopBothMotors();
     }
   }
 }
 
 void doubleClickButton1() {
-  rightMotor.backward();
-  leftMotor.backward();
+  bothMotorsBackwards(0);
 }
 
 void clickButton2() {
@@ -226,8 +284,7 @@ void clickButton2() {
 }
 
 void doubleClickButton3() {
-  rightMotor.forward();
-  leftMotor.forward();
+  bothMotorsForwards(0);
 }
 
 void stopBothMotors() {
@@ -235,4 +292,28 @@ void stopBothMotors() {
   leftMotor.stop();
 
   STOP_AFTER = 0;
+}
+
+void bothMotorsForwards(long forMS) {
+  rightMotor.forward();
+  leftMotor.forward();
+
+  if ( forMS > 0){
+    STOP_AFTER_MILLIS = millis();
+    STOP_AFTER = forMS;
+  } else {
+    STOP_AFTER = 0;
+  }
+}
+
+void bothMotorsBackwards(long forMS) {
+  rightMotor.backward();
+  leftMotor.backward();
+
+  if ( forMS > 0){
+    STOP_AFTER_MILLIS = millis();
+    STOP_AFTER = forMS;
+  } else {
+    STOP_AFTER = 0;
+  }
 }
