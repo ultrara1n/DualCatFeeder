@@ -1,3 +1,6 @@
+document.addEventListener('DOMContentLoaded', function () {
+  document.getElementById("connectionStatus").classList.remove('alert-success');
+});
 
 var connection = new WebSocket('ws://' + location.hostname + ':81/');
 connection.onopen = function () {
