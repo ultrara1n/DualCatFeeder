@@ -6,29 +6,51 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <time.h>
-#include <string>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include <PubSubClient.h>
+#include <stdlib.h>
 
 const char* wifiSSID     = "";
 const char* wifiPassword = "";
+
+const char* mqttServer   = "";
+const int   mqttPort     = 1883;
+const char* mqttUser     = "";
+const char* mqttPassword = "";
 
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 1 * 3600;
 const int   daylightOffset_sec = 3600;
 
+const long utcOffsetInSeconds = 3600;
+
 const unsigned int IN1 = 26; //GPIO13 - IN1;
 const unsigned int IN2 = 25; //GPIO14 - IN2;
 const unsigned int IN3 = 33; //GPIO15 - IN3;
-const unsigned int IN4 = 32;  //GPIO4  - IN4
+const unsigned int IN4 = 32; //GPIO4  - IN4
 
 long STOP_AFTER = 0;
 long STOP_AFTER_MILLIS;
 
+unsigned long BOOT_TIME;
+esp_reset_reason_t REBOOT_REASON;
+
 bool TIMER_MINUTE_ACTIVE = false;
+
+unsigned long LAST_FEED_TIME;
+long LAST_FOR_SECONDS;
 
 Preferences preferences;
 
 AsyncWebServer server(80);
 WebSocketsServer webSocket(81);
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 3600, 60000);
 
 void setup() {
   // Initialize SPIFFS
@@ -70,11 +92,55 @@ void setup() {
     request->send(SPIFFS, "/dualcatfeeder.js", "text/javascript");
   });
 
+  server.on("/favicon-16x16.png", HTTP_GET, [](AsyncWebServerRequest * request) {
+    request->send(SPIFFS, "/favicon-16x16.png", "text/javascript");
+  });
+
+  server.on("/favicon-32x32.png", HTTP_GET, [](AsyncWebServerRequest * request) {
+    request->send(SPIFFS, "/favicon-32x32.png", "text/javascript");
+  });
+
+  server.on("/site.webmanifest", HTTP_GET, [](AsyncWebServerRequest * request) {
+    request->send(SPIFFS, "/site.webmanifest", "text/javascript");
+  });
+  
+  server.on("/android-chrome-512x512.png", HTTP_GET, [](AsyncWebServerRequest * request) {
+    request->send(SPIFFS, "/android-chrome-512x512.png", "text/javascript");
+  });
+  
+  server.on("/android-chrome-192x192.png", HTTP_GET, [](AsyncWebServerRequest * request) {
+    request->send(SPIFFS, "/android-chrome-192x192.png", "text/javascript");
+  });
+  
+  server.on("/apple-touch-icon.png", HTTP_GET, [](AsyncWebServerRequest * request) {
+    request->send(SPIFFS, "/apple-touch-icon.png", "text/javascript");
+  });
+  
   server.begin();
+ 
+  //configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
-  preferences.begin("dcf", false);
+  timeClient.begin();
 
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  timeClient.forceUpdate();
+
+  client.setServer(mqttServer, mqttPort);
+  while (!client.connected()) {
+    Serial.println("Connecting to MQTT...");
+    if (client.connect("ESP8266Client", mqttUser, mqttPassword )) {
+      Serial.println("connected");
+    } else {
+      Serial.print("failed with state ");
+      Serial.print(client.state());
+      delay(2000);
+    }
+  }
+
+  //save boot time and reboot reason to preferences
+  BOOT_TIME = timeClient.getEpochTime();
+  REBOOT_REASON = esp_reset_reason();
+  
+  client.publish("home/kueche/futterautomat/log", "Here we go again.");
 }
 
 void loop() {
@@ -106,35 +172,33 @@ void loop() {
   }
 
   //timer check, if activated
-  if (preferences.getBool("timerActive") == true) {
+  preferences.begin("dcf", false);
+  boolean timerActive = preferences.getBool("timerActive");
+  preferences.end();
+  if ( timerActive == true) {
     checkTimerAction();
   }
 }
 
 void checkTimerAction() {
-  struct tm timeinfo;
-  getLocalTime(&timeinfo);
-  
-  char timeHour[3];
-  strftime(timeHour,3, "%H", &timeinfo);
-
-  char timeMinute[3];
-  strftime(timeMinute,3, "%M", &timeinfo);
-
-  int actualHour   = atoi(timeHour);
-  int actualMinute = atoi(timeMinute);
+  timeClient.update();
   
   //check if timer time is now
-   int selectedHour    = preferences.getInt("selectedHour");
-   int selectedMinute  = preferences.getInt("selectedMinute");
-  if ( selectedHour == actualHour && selectedMinute == actualMinute ){
-    if ( TIMER_MINUTE_ACTIVE == false ) {
-    //start for specified time
-    int forSeconds = preferences.getInt("timerForSeconds");
-    bothMotorsForwards(forSeconds);
+  preferences.begin("dcf", false);
+  unsigned long minus = timeClient.getEpochTime() - preferences.getInt("timerTimestamp");
+  preferences.end();
   
-    //set flag to true
-    TIMER_MINUTE_ACTIVE = true;
+  if ( minus%86400 == 0 ){
+    if ( TIMER_MINUTE_ACTIVE == false ) {
+      client.publish("home/kueche/futterautomat/log", "Timer löst aus!");
+      //start for specified time
+      preferences.begin("dcf", false);
+      long forSeconds = preferences.getInt("timerForSeconds");
+      preferences.end();
+      bothMotorsForwards(forSeconds * 1000);
+  
+      //set flag to true
+      TIMER_MINUTE_ACTIVE = true;
     }
   } else {
     TIMER_MINUTE_ACTIVE = false;
@@ -165,8 +229,8 @@ void stopBothMotors() {
 }
 
 void bothMotorsForwards(long forMS) {
-  //rightMotor.forward();
-  //leftMotor.forward();
+  LAST_FEED_TIME = timeClient.getEpochTime();
+  LAST_FOR_SECONDS = forMS;
 
   digitalWrite(IN1, HIGH);
   digitalWrite(IN2, LOW);
@@ -195,6 +259,16 @@ void bothMotorsBackwards(long forMS) {
   }
 }
 
+void saveTimerNew(boolean active, int timestamp, int forSeconds) {
+  preferences.begin("dcf", false);
+
+  preferences.putInt("timerTimestamp", timestamp);
+  
+  preferences.putInt("timerForSeconds", forSeconds);
+  preferences.putBool("timerActive", active);
+  preferences.end();
+}
+
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lenght) { // When a WebSocket message is received
   switch (type) {
     case WStype_DISCONNECTED:             // if the websocket is disconnected
@@ -202,22 +276,29 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lenght
       break;
     case WStype_CONNECTED: {              // if a new websocket connection is established      
         //Send initial status
-        const size_t capacity = JSON_OBJECT_SIZE(1) + JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(4);
+        const size_t capacity = JSON_OBJECT_SIZE(1) + JSON_OBJECT_SIZE(4) + JSON_OBJECT_SIZE(6);
         DynamicJsonDocument doc(capacity);
 
+        preferences.begin("dcf", false);
+        unsigned long minus = timeClient.getEpochTime() - preferences.getInt("timerTimestamp");
+        preferences.end();
+        
         doc["type"] = "initial";
-        doc["uptime"] = (long) esp_timer_get_time() / 1000000;
+        doc["boottime"] = BOOT_TIME;
+        doc["rebootreason"] = REBOOT_REASON;
+        doc["lastfeedtime"] = LAST_FEED_TIME;
+        doc["lastfeedduration"] = LAST_FOR_SECONDS;
 
         JsonObject timer = doc.createNestedObject("timer");
 
         JsonObject timer_1 = timer.createNestedObject("1");
-
-        timer_1["active"]  = preferences.getBool("timerActive");
-        timer_1["hour"]    = preferences.getInt("selectedHour");
-        timer_1["minute"]  = preferences.getInt("selectedMinute");
-        timer_1["seconds"] = preferences.getInt("timerForSeconds");
-
-        char connectionMessage[200];
+        preferences.begin("dcf", false);
+        timer_1["active"]    = preferences.getBool("timerActive");
+        timer_1["timestamp"] = preferences.getInt("timerTimestamp");
+        timer_1["seconds"]   = preferences.getInt("timerForSeconds");
+        preferences.end();
+         
+        char connectionMessage[350];
         serializeJson(doc, connectionMessage);
 
         webSocket.sendTXT(num, connectionMessage);
@@ -246,28 +327,28 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lenght
           webSocket.sendTXT(num, "{\"type\":\"answer\",\"action\":\"stop\"}");
           stopBothMotors();
         } else if (strcmp(action, "saveTimer") == 0) {
-          int selectedHour = doc["hour"];
-          int selectedMinute = doc["minute"];
-          int forSeconds = doc["forSeconds"];
           bool active = doc["activated"];
-          saveTimer(active, selectedHour, selectedMinute, forSeconds);
+          int forSeconds = doc["forSeconds"];
+          int selectedTimestamp = doc["timestamp"];
+          
+          saveTimerNew(active, selectedTimestamp, forSeconds);
+          webSocket.sendTXT(num, "{\"type\":\"answer\",\"action\":\"saveTimer\"}");
         } else if (strcmp(action, "reboot") == 0) {
           webSocket.sendTXT(num, "{\"type\":\"answer\",\"action\":\"reboot\"}");
           rebootESP();
+        } else if (strcmp(action, "flush") == 0 ) {
+          webSocket.sendTXT(num, "{\"type\":\"answer\",\"action\":\"flush\"}");
+          flushPreferences();
         }
       }
       break;
   }
 }
 
-void saveTimer(boolean active, int selectedHour, int selectedMinute, int forSeconds) {
-  //time
-  preferences.putInt("selectedHour", selectedHour);
-  preferences.putInt("selectedMinute", selectedMinute);
-  //seconds
-  preferences.putInt("timerForSeconds", forSeconds);
-  //active
-  preferences.putBool("timerActive", active);
+void flushPreferences() {
+  preferences.begin("dcf", false);
+  preferences.clear();
+  preferences.end();
 }
 
 void startWebSocket() { // Start a WebSocket server
