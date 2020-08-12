@@ -4,6 +4,7 @@ Before starting, most of the credits are going to Thomas Krichbaumer from https:
 ![Image of nearly finished models](/media/dualcatfeeder-front.png)
 ![Image of nearly finished models](/media/dualcatfeeder-back.png)
 ![GIF of electronical setup](/media/esp8266motor.gif)
+![GIF of web app](/media/web_app.gif)
 
 The electronics are based on an ESP8266 microcontroller, a L298N driver (evaluating this atm, maybe replacing with a TB6612) and two DC-Motors (relativeley high torque and low rpm). 
 
