@@ -8,16 +8,10 @@
 #include <time.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
-#include <PubSubClient.h>
 #include <stdlib.h>
 
 const char* wifiSSID     = "";
 const char* wifiPassword = "";
-
-const char* mqttServer   = "";
-const int   mqttPort     = 1883;
-const char* mqttUser     = "";
-const char* mqttPassword = "";
 
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 1 * 3600;
@@ -35,11 +29,9 @@ long STOP_AFTER_MILLIS;
 
 unsigned long BOOT_TIME;
 esp_reset_reason_t REBOOT_REASON;
+char* REBOOT_REASON_TEXT;
 
 bool TIMER_MINUTE_ACTIVE = false;
-
-unsigned long LAST_FEED_TIME;
-long LAST_FOR_SECONDS;
 
 Preferences preferences;
 
@@ -124,23 +116,18 @@ void setup() {
 
   timeClient.forceUpdate();
 
-  client.setServer(mqttServer, mqttPort);
-  while (!client.connected()) {
-    Serial.println("Connecting to MQTT...");
-    if (client.connect("ESP8266Client", mqttUser, mqttPassword )) {
-      Serial.println("connected");
-    } else {
-      Serial.print("failed with state ");
-      Serial.print(client.state());
-      delay(2000);
-    }
-  }
-
   //save boot time and reboot reason to preferences
   BOOT_TIME = timeClient.getEpochTime();
   REBOOT_REASON = esp_reset_reason();
-  
-  client.publish("home/kueche/futterautomat/log", "Here we go again.");
+
+  switch(REBOOT_REASON) {
+    case ESP_RST_SW: REBOOT_REASON_TEXT = "ESP_RST_SW"; break;
+    case ESP_RST_POWERON: REBOOT_REASON_TEXT = "ESP_RST_POWERON"; break;
+    case ESP_RST_UNKNOWN: REBOOT_REASON_TEXT = "ESP_RST_UNKNOWN"; break;
+    case ESP_RST_PANIC: REBOOT_REASON_TEXT = "ESP_RST_PANIC"; break;
+  }
+
+  preferences.begin("dcf", false);
 }
 
 void loop() {
@@ -156,7 +143,7 @@ void loop() {
   }
   if(wifi_retry >= 5) {
       Serial.println("\nReboot");
-      ESP.restart();
+     rebootESP("WIFI");
   }
   
   ArduinoOTA.handle();
@@ -172,9 +159,7 @@ void loop() {
   }
 
   //timer check, if activated
-  preferences.begin("dcf", false);
   boolean timerActive = preferences.getBool("timerActive");
-  preferences.end();
   if ( timerActive == true) {
     checkTimerAction();
   }
@@ -184,17 +169,12 @@ void checkTimerAction() {
   timeClient.update();
   
   //check if timer time is now
-  preferences.begin("dcf", false);
   unsigned long minus = timeClient.getEpochTime() - preferences.getInt("timerTimestamp");
-  preferences.end();
   
   if ( minus%86400 == 0 ){
     if ( TIMER_MINUTE_ACTIVE == false ) {
-      client.publish("home/kueche/futterautomat/log", "Timer löst aus!");
       //start for specified time
-      preferences.begin("dcf", false);
       long forSeconds = preferences.getInt("timerForSeconds");
-      preferences.end();
       bothMotorsForwards(forSeconds * 1000);
   
       //set flag to true
@@ -229,8 +209,8 @@ void stopBothMotors() {
 }
 
 void bothMotorsForwards(long forMS) {
-  LAST_FEED_TIME = timeClient.getEpochTime();
-  LAST_FOR_SECONDS = forMS;
+  preferences.putInt("lastFeedTime", timeClient.getEpochTime());
+  preferences.putInt("lastDuration", forMS);
 
   digitalWrite(IN1, HIGH);
   digitalWrite(IN2, LOW);
@@ -260,13 +240,11 @@ void bothMotorsBackwards(long forMS) {
 }
 
 void saveTimerNew(boolean active, int timestamp, int forSeconds) {
-  preferences.begin("dcf", false);
 
   preferences.putInt("timerTimestamp", timestamp);
   
   preferences.putInt("timerForSeconds", forSeconds);
   preferences.putBool("timerActive", active);
-  preferences.end();
 }
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lenght) { // When a WebSocket message is received
@@ -276,29 +254,28 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lenght
       break;
     case WStype_CONNECTED: {              // if a new websocket connection is established      
         //Send initial status
-        const size_t capacity = JSON_OBJECT_SIZE(1) + JSON_OBJECT_SIZE(4) + JSON_OBJECT_SIZE(6);
+        const size_t capacity = JSON_OBJECT_SIZE(1) + JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(9) + 180;
         DynamicJsonDocument doc(capacity);
 
-        preferences.begin("dcf", false);
         unsigned long minus = timeClient.getEpochTime() - preferences.getInt("timerTimestamp");
-        preferences.end();
         
         doc["type"] = "initial";
         doc["boottime"] = BOOT_TIME;
         doc["rebootreason"] = REBOOT_REASON;
-        doc["lastfeedtime"] = LAST_FEED_TIME;
-        doc["lastfeedduration"] = LAST_FOR_SECONDS;
+        doc["rebootreasontext"] = REBOOT_REASON_TEXT;
+        doc["rebootsource"] = preferences.getString("rebootReason");
+        doc["freeram"] = esp_get_free_heap_size();
+        doc["lastfeedtime"] = preferences.getInt("lastFeedTime");
+        doc["lastfeedduration"] = preferences.getInt("lastDuration");
 
         JsonObject timer = doc.createNestedObject("timer");
 
         JsonObject timer_1 = timer.createNestedObject("1");
-        preferences.begin("dcf", false);
         timer_1["active"]    = preferences.getBool("timerActive");
         timer_1["timestamp"] = preferences.getInt("timerTimestamp");
         timer_1["seconds"]   = preferences.getInt("timerForSeconds");
-        preferences.end();
          
-        char connectionMessage[350];
+        char connectionMessage[370];
         serializeJson(doc, connectionMessage);
 
         webSocket.sendTXT(num, connectionMessage);
@@ -310,7 +287,6 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lenght
 
       DeserializationError err = deserializeJson(doc, payload);
       if (err) {
-        //client.publish("home/kueche/futterautomat/log", (char*) err.c_str());
       } else {
         const char* action = doc["action"];
 
@@ -335,7 +311,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lenght
           webSocket.sendTXT(num, "{\"type\":\"answer\",\"action\":\"saveTimer\"}");
         } else if (strcmp(action, "reboot") == 0) {
           webSocket.sendTXT(num, "{\"type\":\"answer\",\"action\":\"reboot\"}");
-          rebootESP();
+          rebootESP("WEBSOCKET");
         } else if (strcmp(action, "flush") == 0 ) {
           webSocket.sendTXT(num, "{\"type\":\"answer\",\"action\":\"flush\"}");
           flushPreferences();
@@ -346,9 +322,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lenght
 }
 
 void flushPreferences() {
-  preferences.begin("dcf", false);
   preferences.clear();
-  preferences.end();
 }
 
 void startWebSocket() { // Start a WebSocket server
@@ -357,6 +331,7 @@ void startWebSocket() { // Start a WebSocket server
   Serial.println("WebSocket server started.");
 }
 
-void rebootESP() {
+void rebootESP(char* rebootReason) {
+  preferences.putString("rebootReason", rebootReason);
   ESP.restart();
 }

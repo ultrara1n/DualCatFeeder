@@ -138,7 +138,9 @@ function statsOnConnect(jsonObj) {
   var dateLastFeedTime = new Date(jsonObj.lastfeedtime*1000);
 
   document.getElementById("bootTime").value = dateBootTime.toUTCString();
-  document.getElementById("rebootReason").value = jsonObj.rebootreason;
+  document.getElementById("rebootReason").value = jsonObj.rebootreasontext;
+  document.getElementById("rebootSource").value = jsonObj.rebootsource;
+  document.getElementById("freeRAM").value = jsonObj.freeram;
   document.getElementById("lastFeedTime").value = dateLastFeedTime.toUTCString();
   document.getElementById("lastFeedDuration").value = jsonObj.lastfeedduration / 1000;
 
