@@ -1,9 +1,9 @@
 # DualCatFeeder
 Before starting, most of the credits are going to Thomas Krichbaumer who provide me the CAD files for his cat feeder design (https://www.thingiverse.com/thing:3623148).
 
-![Front of the DualCatFeeder](/media/dualcatfeeder-front.png)
+![Front of the DualCatFeeder](/media/dual_cat_feeder.jpg)
 ![GIF of electronical setup](/media/esp8266motor.gif)
-![GIF of web app](/media/web_app.gif)
+![GIF of web app](/media/web_app.webp)
 
 ## Where is the code?
 For some real code to use with this device, head over to https://github.com/ultrara1n/dualcatfeeder-esp32
@@ -25,7 +25,7 @@ DC12V 2A power supply | 1 |
 
 Make sure that the size of your power socket and the provided plug of the power supply are matching! In this case both are 5,5mm*2,1mm.
 
-## Power consumption
+<!-- ## Power consumption
 Situation | Ampere
 ------------ | -------------
 Both motors off, ESP8266 connected to WiFi | 0,021A
@@ -35,6 +35,6 @@ Both motors on, highest load I can achieve with my bare hands, ESP8266 connected
 So we are around 18 Watts in high load enviroments - real life measurements to come.
 This means the system should be powered by an 12V 2A power supply.
 
-<!-- To save space and minimize cables flying around I designed a PCB (and a case for it):
-![Image of nearly finished models](/media/pcb.png) -->
+To save space and minimize cables flying around I designed a PCB (and a case for it): -->
+![Image of nearly finished models](/media/pcb.png)
 
